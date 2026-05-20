@@ -34,6 +34,50 @@ export default function DashboardPage() {
   const [csvOptions, setCsvOptions] = useState([]);
 
   const [locations, setLocations] = useState([]);
+  const [syncNowDisabled, setSyncNowDisabled] = useState(false);
+  const [syncNowRemaining, setSyncNowRemaining] = useState(0);
+
+  const SYNC_NOW_STORAGE_KEY = "syncNowDisabledUntil";
+
+  const updateSyncNowState = (disabledUntil) => {
+    const now = Date.now();
+    const remainingMs = disabledUntil - now;
+
+    if (remainingMs > 0) {
+      setSyncNowDisabled(true);
+      setSyncNowRemaining(Math.ceil(remainingMs / 1000));
+    } else {
+      setSyncNowDisabled(false);
+      setSyncNowRemaining(0);
+      localStorage.removeItem(SYNC_NOW_STORAGE_KEY);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const stored = localStorage.getItem(SYNC_NOW_STORAGE_KEY);
+    const disabledUntil = stored ? parseInt(stored, 10) : 0;
+
+    if (disabledUntil && !Number.isNaN(disabledUntil)) {
+      updateSyncNowState(disabledUntil);
+    }
+
+    const interval = setInterval(() => {
+      const currentStored = localStorage.getItem(SYNC_NOW_STORAGE_KEY);
+      const currentDisabledUntil = currentStored ? parseInt(currentStored, 10) : 0;
+
+      if (currentDisabledUntil && !Number.isNaN(currentDisabledUntil)) {
+        updateSyncNowState(currentDisabledUntil);
+      } else {
+        setSyncNowDisabled(false);
+        setSyncNowRemaining(0);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   // Dashboard Stats
   useEffect(() => {
 
@@ -137,6 +181,9 @@ export default function DashboardPage() {
       const data = await response.json();
 
       if (response.ok) {
+        const disabledUntil = Date.now() + 10 * 60 * 1000;
+        localStorage.setItem(SYNC_NOW_STORAGE_KEY, disabledUntil.toString());
+        updateSyncNowState(disabledUntil);
         alert(data.message || "Inventory sync started");
       } else {
         alert(data?.message || "Failed to start inventory sync");
@@ -231,8 +278,9 @@ export default function DashboardPage() {
         <Button
           variant="secondary"
           onClick={syncNow}
+          disabled={syncNowDisabled}
         >
-          Sync Now
+          {syncNowDisabled ? `Sync Now (${syncNowRemaining}s)` : "Sync Now"}
         </Button>
 
         <Button
