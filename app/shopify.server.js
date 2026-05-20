@@ -6,6 +6,8 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import axios from "axios";
+
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -16,6 +18,35 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  hooks: {
+
+    afterAuth: async ({ session }) => {
+
+      console.log("APi URl >>>  ", process.env.VITE_API_ROOT);
+
+      console.log("Seeessssssiiiiiiiooooonnnnn :: " + JSON.stringify(session));
+      console.log("Session token : ", session.accessToken);
+
+      try {
+
+        await axios.post(
+          `${process.env.VITE_API_ROOT}/api/stores/install`,
+          {
+            shop: session.shop,
+            access_token: session.accessToken,
+            scope: session.scope
+          }
+        );
+
+        console.log(
+          "Store synced to backend"
+        );
+
+      } catch (err) {
+        console.log(err.message);
+      }
+    }
+  },
   future: {
     expiringOfflineAccessTokens: true,
   },
