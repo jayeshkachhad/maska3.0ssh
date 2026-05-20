@@ -130,6 +130,22 @@ export default function DashboardPage() {
       alert("Failed to sync locations");
     }
   };
+
+  const syncNow = async () => {
+    try {
+      const response = await fetch(`${apiRoot}/syncnow`);
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(data.message || "Inventory sync started");
+      } else {
+        alert(data?.message || "Failed to start inventory sync");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Failed to start inventory sync");
+    }
+  };
   
   const saveMappings = async () => {
 
@@ -210,6 +226,13 @@ export default function DashboardPage() {
           onClick={syncLocations}
         >
           Sync Locations
+        </Button>
+
+        <Button
+          variant="secondary"
+          onClick={syncNow}
+        >
+          Sync Now
         </Button>
 
         <Button
