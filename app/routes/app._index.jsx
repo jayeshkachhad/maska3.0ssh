@@ -14,28 +14,44 @@ import {
   InlineStack,
   Text,
   Button,
+  Modal,
+  DataTable,
+  Spinner,
 } from "@shopify/polaris";
 
 export const loader = async ({ request }) => {
 
   await authenticate.admin(request);
 
+  const url = new URL(request.url);
+  const shop = url.searchParams.get("shop") || "";
+
   return {
-    apiRoot: process.env.VITE_API_ROOT || ""
+    apiRoot: process.env.VITE_API_ROOT || "",
+    shop,
   };
 };
 
 export default function DashboardPage() {
 
-  const { apiRoot } = useLoaderData();
+  const { apiRoot, shop } = useLoaderData();
 
   const [stats, setStats] = useState(null);
 
   const [csvOptions, setCsvOptions] = useState([]);
 
   const [locations, setLocations] = useState([]);
+  const [runTime, setRunTime] = useState("10");
   const [syncNowDisabled, setSyncNowDisabled] = useState(false);
   const [syncNowRemaining, setSyncNowRemaining] = useState(0);
+
+  const runTimeOptions = [
+    { label: "10 minutes", value: "10" },
+    { label: "20 minutes", value: "20" },
+    { label: "30 minutes", value: "30" },
+    { label: "45 minutes", value: "45" },
+    { label: "60 minutes", value: "60" },
+  ];
 
   const SYNC_NOW_STORAGE_KEY = "syncNowDisabledUntil";
 
@@ -144,6 +160,52 @@ export default function DashboardPage() {
     }
   };
 
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const [reportRows, setReportRows] = useState([]);
+
+  const [reportTitle, setReportTitle] = useState("");
+
+  const openReport = async (status) => {
+
+    try {
+
+      setReportOpen(true);
+
+      setReportLoading(true);
+
+      setReportRows([]);
+
+      setReportTitle(
+        status === "done"
+          ? "Last 100 Processed"
+          : "Last 100 Failed"
+      );
+
+      const res = await fetch(
+        `${apiRoot}/report?status=${status}`
+      );
+
+      const data = await res.json();
+
+      setReportRows(data.data || []);
+
+    } catch (err) {
+
+      console.log(err);
+
+      alert("Failed loading report");
+
+    } finally {
+
+      setReportLoading(false);
+
+    }
+
+  };
+
   const handleMappingChange = (locationId, csvCode) => {
 
     setLocations((prev) =>
@@ -193,7 +255,42 @@ export default function DashboardPage() {
       alert("Failed to start inventory sync");
     }
   };
-  
+
+  const handleRunTimeChange = async (value) => {
+    const confirmed = window.confirm(
+      `Update Interval To ${value} minutes `
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/run-time", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop,
+          run_time: Number(value),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setRunTime(value);
+        alert(data.message || "Run time updated");
+      } else {
+        alert(data?.message || "Failed to update run time");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Failed to update run time");
+    }
+  };
+
   const saveMappings = async () => {
 
     try {
@@ -252,11 +349,15 @@ export default function DashboardPage() {
           <DashboardCard
             title="Processed"
             value={stats?.done || 0}
+            clickable
+            onClick={() => openReport("done")}
           />
 
           <DashboardCard
             title="Failed"
             value={stats?.failed || 0}
+            clickable
+            onClick={() => openReport("failed")}
           />
 
           <DashboardCard
@@ -266,31 +367,41 @@ export default function DashboardPage() {
 
         </div>
 
-        <div style={{ marginTop: "20px", marginBottom: "40px",  display: "flex", gap: "12px" }}>
+        <div style={{ marginTop: "20px", marginBottom: "40px", display: "flex", gap: "12px" }}>
 
-        <Button
-          variant="secondary"
-          onClick={syncLocations}
-        >
-          Sync Locations
-        </Button>
+          <div style={{ minWidth: 180 }}>
+            <Select
+              label="Run time"
+              labelHidden
+              options={runTimeOptions}
+              value={runTime}
+              onChange={handleRunTimeChange}
+            />
+          </div>
 
-        <Button
-          variant="secondary"
-          onClick={syncNow}
-          disabled={syncNowDisabled}
-        >
-          {syncNowDisabled ? `Sync Now (${syncNowRemaining}s)` : "Sync Now"}
-        </Button>
+          <Button
+            variant="secondary"
+            onClick={syncLocations}
+          >
+            Sync Locations
+          </Button>
 
-        <Button
-          variant="primary"
-          onClick={saveMappings}
-        >
-          Save Mappings
-        </Button>
+          <Button
+            variant="secondary"
+            onClick={syncNow}
+            disabled={syncNowDisabled}
+          >
+            {syncNowDisabled ? `Sync Now (${syncNowRemaining}s)` : "Sync Now"}
+          </Button>
 
-      </div>
+          <Button
+            variant="primary"
+            onClick={saveMappings}
+          >
+            Save Mappings
+          </Button>
+
+        </div>
 
 
         {/* Location Mapping */}
@@ -344,26 +455,129 @@ export default function DashboardPage() {
 
       </BlockStack>
 
-      
+      <Modal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        title={reportTitle}
+        large
+      >
+
+        <Modal.Section>
+
+          {reportLoading ? (
+
+            <Spinner />
+
+          ) : (
+
+            <div
+              style={{
+                width: "100%",
+                overflow: "hidden",
+              }}
+            >
+
+              <DataTable
+                increasedTableDensity
+
+                columnContentTypes={[
+                  "text",
+                  "text",
+                  "text",
+                  "text",
+                  "text",
+                  "text",
+                ]}
+
+                headings={[
+                  "Style",
+                  "SKU",
+                  "Location",
+                  "Qty",
+                  "Processed",
+                  "Result"
+                ]}
+
+                rows={
+
+                  reportRows.map(r => [
+
+                    <div style={{ maxWidth: 100 }}>
+                      {r.style}
+                    </div>,
+
+                    <div style={{ maxWidth: 120 }}>
+                      {r.sku}
+                    </div>,
+
+                    <div style={{ maxWidth: 180 }}>
+                      {r.store_name}
+                    </div>,
+
+                    `${r.old_qty} → ${r.new_qty}`,
+
+                    r.processed_at,
+
+                    <div
+                      style={{
+                        maxWidth: 260,
+                        whiteSpace: "normal",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {r.error_message || "Success"}
+                    </div>
+
+                  ])
+
+                }
+
+              />
+
+            </div>
+
+          )}
+
+        </Modal.Section>
+
+      </Modal>
+
+
     </Page>
   );
 }
 
-function DashboardCard({ title, value }) {
+function DashboardCard({
+  title,
+  value,
+  clickable,
+  onClick
+}) {
 
   return (
 
-    <div style={{
-      border: '1px solid #ddd',
-      padding: '20px',
-      borderRadius: '10px',
-      background: '#fff'
-    }}>
+    <div
+      onClick={onClick}
+      style={{
+        border: '1px solid #ddd',
+        padding: '20px',
+        borderRadius: '10px',
+        background: '#fff',
+        cursor:
+          clickable
+            ? "pointer"
+            : "default",
+
+        transition: "0.2s"
+      }}
+    >
 
       <h3>{title}</h3>
 
       <h1>{value}</h1>
 
     </div>
+
   );
+
 }
