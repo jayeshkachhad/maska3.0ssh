@@ -20,28 +20,43 @@ import {
 } from "@shopify/polaris";
 
 export const loader = async ({ request }) => {
-
   await authenticate.admin(request);
 
   const url = new URL(request.url);
   const shop = url.searchParams.get("shop") || "";
 
+  const origin = new URL(request.url).origin;
+  const apiRoot = process.env.VITE_API_ROOT || origin;
+
+  const store = await fetch(`${apiRoot}/api/stores/my-store`, {
+    method: "GET",
+    headers: {
+      cookie: request.headers.get("cookie") || "",
+    },
+  });
+
+  const storeData = await store
+    .json()
+    .catch(() => ({ message: "Store Data Load Failed..." }));
+
   return {
-    apiRoot: process.env.VITE_API_ROOT || "",
+    apiRoot,
     shop,
+    storeData,
   };
 };
 
 export default function DashboardPage() {
 
-  const { apiRoot, shop } = useLoaderData();
+  const { apiRoot, shop, storeData } = useLoaderData();
+  const initialRunTime = storeData?.store?.run_time?.toString() || "10";
 
   const [stats, setStats] = useState(null);
 
   const [csvOptions, setCsvOptions] = useState([]);
 
   const [locations, setLocations] = useState([]);
-  const [runTime, setRunTime] = useState("10");
+  const [runTime, setRunTime] = useState(initialRunTime);
   const [syncNowDisabled, setSyncNowDisabled] = useState(false);
   const [syncNowRemaining, setSyncNowRemaining] = useState(0);
 
@@ -266,7 +281,7 @@ export default function DashboardPage() {
     }
 
     try {
-      const response = await fetch("/run-time", {
+      const response = await fetch(`${apiRoot}/api/stores/run-time`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -349,6 +364,7 @@ export default function DashboardPage() {
           <DashboardCard
             title="Processed"
             value={stats?.done || 0}
+            textColor="green"
             clickable
             onClick={() => openReport("done")}
           />
@@ -357,6 +373,7 @@ export default function DashboardPage() {
             title="Failed"
             value={stats?.failed || 0}
             clickable
+            textColor="red"
             onClick={() => openReport("failed")}
           />
 
@@ -459,83 +476,56 @@ export default function DashboardPage() {
         open={reportOpen}
         onClose={() => setReportOpen(false)}
         title={reportTitle}
-        large
+        size="fullScreen"
       >
-
         <Modal.Section>
+          <style>{`
+      .Polaris-Modal-Dialog__Modal {
+        max-width: 95vw !important;
+        width: 95vw !important;
+      }
+    `}</style>
 
           {reportLoading ? (
-
             <Spinner />
-
           ) : (
-
-            <div
-              style={{
-                width: "100%",
-                overflow: "hidden",
-              }}
-            >
-
-              <DataTable
-                increasedTableDensity
-
-                columnContentTypes={[
-                  "text",
-                  "text",
-                  "text",
-                  "text",
-                  "text",
-                  "text",
-                ]}
-
-                headings={[
-                  "Style",
-                  "SKU",
-                  "Location",
-                  "Qty",
-                  "Processed",
-                  "Result"
-                ]}
-
-                rows={
-
-                  reportRows.map(r => [
-
-                    <div style={{ maxWidth: 100 }}>
-                      {r.style}
-                    </div>,
-
-                    <div style={{ maxWidth: 120 }}>
-                      {r.sku}
-                    </div>,
-
-                    <div style={{ maxWidth: 180 }}>
-                      {r.store_name}
-                    </div>,
-
-                    `${r.old_qty} → ${r.new_qty}`,
-
-                    r.processed_at,
-
-                    <div
-                      style={{
-                        maxWidth: 260,
-                        whiteSpace: "normal",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {r.error_message || "Success"}
-                    </div>
-
-                  ])
-
-                }
-
-              />
-
+            <div style={{ width: "100%", overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid #e1e3e5", textAlign: "left" }}>
+                    {["Style", "SKU", "Size", "Color", "Location", "Qty", "Processed", "Result"].map(h => (
+                      <th key={h} style={{ padding: "8px 12px", whiteSpace: "nowrap", color: "#6d7175", fontWeight: 600 }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.map((r, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #e1e3e5" }}>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.style}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.sku}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.size}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.color}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.store_name}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.old_qty} → {r.new_qty}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>{r.processed_at}</td>
+                      <td
+                        style={{
+                          padding: "8px 12px",
+                          wordBreak: "break-word",
+                          maxWidth: "220px",
+                          color: r.error_message ? "red" : "green",
+                          fontWeight: r.error_message ? 500 : 400,
+                        }}
+                      >
+                        {r.error_message || "Success"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
           )}
 
         </Modal.Section>
@@ -546,16 +536,14 @@ export default function DashboardPage() {
     </Page>
   );
 }
-
 function DashboardCard({
   title,
   value,
   clickable,
-  onClick
+  onClick,
+  textColor = "#000"
 }) {
-
   return (
-
     <div
       onClick={onClick}
       style={{
@@ -563,21 +551,13 @@ function DashboardCard({
         padding: '20px',
         borderRadius: '10px',
         background: '#fff',
-        cursor:
-          clickable
-            ? "pointer"
-            : "default",
-
+        cursor: clickable ? "pointer" : "default",
         transition: "0.2s"
       }}
     >
+      <h3 style={{ color: textColor }}>{title}</h3>
 
-      <h3>{title}</h3>
-
-      <h1>{value}</h1>
-
+      <h1 style={{ color: textColor }}>{value}</h1>
     </div>
-
   );
-
 }
